@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import List
+from typing import List, Union
 
 import numpy as np
 import torch
@@ -11,7 +11,7 @@ from gene.util import split_into_batchs, flatten_2d_list
 
 
 class ParallelDivisionOptimiser(Optimiser):
-    def __init__(self, loss, random_function, selection_limit=10, division_factor=2):
+    def __init__(self, loss, random_function, selection_limit=10, division_factor=2, device="cpu"):
         """
         :param loss: A function that takes an outputs of the model and true values.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
@@ -25,11 +25,15 @@ class ParallelDivisionOptimiser(Optimiser):
         self._division_factor = division_factor
         self._random_function = ray.put(random_function)
         self._losses = None
+        self._device = device
 
-        ray.init(ignore_reinit_error=True)
-        self._remote_mutate_batch = ray.remote(lambda ms: [self._mutate(ray.get(self._random_function), m) for m in ms])
-        self._remote_apply_model_batch = ray.remote(lambda ms, x: [m(x) for m in ms])
-        self._remote_compute_loss = ray.remote(lambda pred_batch, gt: [self._loss(pred, gt) for pred in pred_batch])
+        ray.init(ignore_reinit_error=True, num_gpus=1)
+        self._remote_mutate_batch = ray.remote(num_gpus=1 if device == "cuda" else 0)\
+            (lambda ms: [self._mutate(ray.get(self._random_function), m, device) for m in ms])
+        self._remote_apply_model_batch = ray.remote(num_gpus=1 if device == "cuda" else 0)\
+            (lambda ms, x: [m(x) for m in ms])
+        self._remote_compute_loss = ray.remote(num_gpus=1 if device == "cuda" else 0)\
+            (lambda pred_batch, gt: [self._loss(pred, gt) for pred in pred_batch])
 
     def get_losses(self) -> List[torch.Tensor]:
         return deepcopy(self._losses)
@@ -61,23 +65,24 @@ class ParallelDivisionOptimiser(Optimiser):
         models_with_losses = sorted(models_with_losses, key=lambda x: x[1])
         models_with_losses = models_with_losses[:self._selection_limit]
 
-        self._losses = [losses.numpy() for model, losses in models_with_losses]
+        self._losses = [losses.cpu().numpy() for model, losses in models_with_losses]
 
         return [model for model, losses in models_with_losses]
 
+    # TODO: rewrite as a dynamic method
     @staticmethod
-    def _mutate(random_function, model: nn.Module) -> nn.Module:
+    def _mutate(random_function, model: nn.Module, device: str) -> nn.Module:
         original_model = deepcopy(model)
         params = original_model.parameters()
 
         for param in params:
-            param.data = param.data + random_function(param.data.shape)
+            param.data = param.data + random_function(param.data.shape).to(device)
 
         return original_model
 
 
 class DivisionOptimiser(Optimiser):
-    def __init__(self, loss, random_function, selection_limit=10, division_factor=2):
+    def __init__(self, loss, random_function, selection_limit=10, division_factor=2, device="cpu"):
         """
         :param loss: A function that takes an outputs of the model and true values.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
@@ -91,6 +96,7 @@ class DivisionOptimiser(Optimiser):
         self._division_factor = division_factor
         self._random_function = random_function
         self._losses = None
+        self._device = device
 
     def get_losses(self) -> List[torch.Tensor]:
         return deepcopy(self._losses)
@@ -99,7 +105,7 @@ class DivisionOptimiser(Optimiser):
     def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:
         # Mutate the models
         models_to_mutate = models * self._division_factor
-        mutated_models = [self._mutate(self._random_function, model) for model in models_to_mutate]
+        mutated_models = [self._mutate(self._random_function, model, self._device) for model in models_to_mutate]
         new_models = mutated_models + models
 
         # Keep only the best models
@@ -108,16 +114,16 @@ class DivisionOptimiser(Optimiser):
         models_with_losses = sorted(models_with_losses, key=lambda x: x[1])
         models_with_losses = models_with_losses[:self._selection_limit]
 
-        self._losses = [losses for model, losses in models_with_losses]
+        self._losses = [losses.cpu().numpy() for model, losses in models_with_losses]
 
         return [model for model, losses in models_with_losses]
 
     @staticmethod
-    def _mutate(random_function, model: nn.Module) -> nn.Module:
+    def _mutate(random_function, model: nn.Module, device) -> nn.Module:
         original_model = deepcopy(model)
         params = original_model.parameters()
 
         for param in params:
-            param.data = param.data + random_function(param.data.shape)
+            param.data = param.data + random_function(param.data.shape).to(device)
 
         return original_model
