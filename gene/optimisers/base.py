@@ -11,5 +11,5 @@ class Optimiser(ABC):
         pass
 
     @abstractmethod
-    def get_losses(self) -> List[torch.Tensor]:
+    def get_last_targets(self) -> List[torch.Tensor]:
         pass
