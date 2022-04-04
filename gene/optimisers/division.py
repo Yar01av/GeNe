@@ -87,8 +87,7 @@ class DivisionOptimiser(Optimiser):
                  random_function,
                  selection_limit=10,
                  division_factor=2,
-                 device="cpu",
-                 direction="min"):
+                 device="cpu"):
         """
         :param target_func: A function that takes an outputs of the model and true values and returns a target value.
                             The smaller is assumed to be better.
@@ -98,15 +97,11 @@ class DivisionOptimiser(Optimiser):
         :param division_factor: How many offsprings does a model have.
         """
 
-        self._target = target_func
+        self._target_func = target_func
         self._selection_limit = selection_limit
         self._division_factor = division_factor
         self._random_function = random_function
-        self._last_targets = None
         self._device = device
-
-    def get_last_targets(self) -> List[torch.Tensor]:
-        return deepcopy(self._last_targets)
 
     @no_grad()
     def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:
@@ -117,11 +112,9 @@ class DivisionOptimiser(Optimiser):
 
         # Keep only the best models
         # remote_loss = ray.remote(self._target)
-        models_with_targets = [(model, self._target(model(X), y_true)) for model in new_models]
+        models_with_targets = [(model, self._target_func(model(X), y_true)) for model in new_models]
         models_with_targets = sorted(models_with_targets, key=lambda x: x[1])
         models_with_targets = models_with_targets[:self._selection_limit]
-
-        self._last_targets = [targets.cpu().numpy() for model, targets in models_with_targets]
 
         return [model for model, targets in models_with_targets]
 

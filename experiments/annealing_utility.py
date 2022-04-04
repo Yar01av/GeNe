@@ -7,6 +7,7 @@ from torchvision import datasets
 from torchvision.transforms import transforms
 from tqdm import tqdm
 
+from gene.optimisers.annealing import AnnealingOptimiser
 from gene.optimisers.division import ParallelDivisionOptimiser, DivisionOptimiser
 import torch
 import torch.nn.functional as F
@@ -16,7 +17,7 @@ from gene.targets import get_negative_accuracy_target
 
 
 DEVICE = ["cpu", "cuda"][1]
-N_EPOCHS = 100
+N_EPOCHS = 10
 
 
 def get_accuracy(test_loader, model):
@@ -49,10 +50,11 @@ model = torch.nn.Sequential(
 models = [model.to(DEVICE)]
 
 # Define the optimiser
-optimiser = DivisionOptimiser(target_func=get_negative_accuracy_target,
-                              random_function=lambda shape: torch.normal(0, 0.1, shape),
-                              selection_limit=10,
-                              device=DEVICE)
+optimiser = AnnealingOptimiser(target_func=get_negative_accuracy_target,
+                               init_std=5.0,
+                               std_updater=lambda std: std*0.999 if std >= 0.0001 else std,
+                               selection_limit=10,
+                               device=DEVICE)
 
 # Define the data
 train_data = datasets.MNIST(
