@@ -4,6 +4,8 @@ from typing import List, Union
 import numpy as np
 import torch
 import ray
+from numba import jit
+
 from gene.optimisers.base import Optimiser
 from torch import nn, no_grad
 
@@ -11,13 +13,20 @@ from gene.util import split_into_batchs, flatten_2d_list
 
 
 class ParallelDivisionOptimiser(Optimiser):
-    def __init__(self, target_func, random_function, selection_limit=10, division_factor=2, device="cpu"):
+    def __init__(self,
+                 target_func,
+                 random_function,
+                 selection_limit=10,
+                 division_factor=2,
+                 device="cpu",
+                 multi_proc_batch_size=16):
         """
         :param target_func: A function that takes an outputs of the model and true values.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
                                 values.
         :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
         :param division_factor: How many offsprings does a model have.
+        :param multi_proc_batch_size: how many units of work should be put into a single batch.
         """
 
         self._target_func = target_func
@@ -26,6 +35,8 @@ class ParallelDivisionOptimiser(Optimiser):
         self._random_function = ray.put(random_function)
         self._targets = None
         self._device = device
+        self._multi_proc_batch_size = multi_proc_batch_size
+
 
         ray.init(ignore_reinit_error=True, num_gpus=1)
         self._remote_mutate_batch = ray.remote(num_gpus=1 if device == "cuda" else 0)\
@@ -43,20 +54,21 @@ class ParallelDivisionOptimiser(Optimiser):
         # Mutate the models
         models_to_mutate = models * self._division_factor
         remote_models = [self._remote_mutate_batch.remote(models)
-                         for models in split_into_batchs(models_to_mutate, 16)]
+                         for models in split_into_batchs(models_to_mutate, self._multi_proc_batch_size)]
         local_nested_models = ray.get(remote_models)
         local_models = flatten_2d_list(local_nested_models)
         new_models = local_models + models
 
         # Apply the models to the input
-        remote_nested_predictions = [self._remote_apply_model_batch.remote(ms, X) for ms in split_into_batchs(new_models, 16)]
+        remote_nested_predictions = [self._remote_apply_model_batch.remote(ms, X)
+                                     for ms in split_into_batchs(new_models, self._multi_proc_batch_size)]
         local_nested_predictions = ray.get(remote_nested_predictions)
         local_predictions = flatten_2d_list(local_nested_predictions)
 
         # Compute the targets
         remote_y_true = ray.put(y_true)
         remote_nested_targets = [self._remote_compute_loss.remote(pred_batch, remote_y_true)
-                                for pred_batch in split_into_batchs(local_predictions, 16)]
+                                 for pred_batch in split_into_batchs(local_predictions, self._multi_proc_batch_size)]
         local_nested_targets = ray.get(remote_nested_targets)
         local_targets = flatten_2d_list(local_nested_targets)
 

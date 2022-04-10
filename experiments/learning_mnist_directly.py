@@ -49,9 +49,10 @@ model = torch.nn.Sequential(
 models = [model.to(DEVICE)]
 
 # Define the optimiser
-optimiser = DivisionOptimiser(target_func=get_negative_accuracy_target,
+optimiser = ParallelDivisionOptimiser(target_func=get_negative_accuracy_target,
                               random_function=lambda shape: torch.normal(0, 0.1, shape),
                               selection_limit=10,
+                              multi_proc_batch_size=18,
                               device=DEVICE)
 
 # Define the data
@@ -72,8 +73,6 @@ test_loader = DataLoader(test_data, batch_size=1024)
 
 latest_scores = []
 
-start = datetime.now()
-
 for e in tqdm(range(N_EPOCHS)):
     for images, labels in tqdm(train_loader, leave=False):
         models = optimiser.step(models, images.to(DEVICE), labels.to(DEVICE))
@@ -83,7 +82,6 @@ for e in tqdm(range(N_EPOCHS)):
         print(latest_score)
 
 end = datetime.now()
-print(end-start)
 
 plt.plot(latest_scores)
 plt.show()
