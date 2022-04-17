@@ -4,7 +4,6 @@ from typing import List, Union
 import numpy as np
 import torch
 import ray
-from numba import jit
 
 from gene.optimisers.base import Optimiser
 from torch import nn, no_grad

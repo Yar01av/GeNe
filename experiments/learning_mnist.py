@@ -12,27 +12,10 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from gene.util import get_accuracy
 
 DEVICE = ["cpu", "cuda"][1]
 N_EPOCHS = 3
-
-
-def get_accuracy(test_loader, model):
-    preds = []
-    trues = []
-
-    for images, labels in test_loader:
-        images = images.to(DEVICE)
-        labels = labels.to(DEVICE)
-
-        y_pred = model(images)
-
-        preds.extend(y_pred.to("cpu").detach().numpy())
-        trues.extend(labels.to("cpu").detach().numpy())
-
-    total_matches = np.sum(np.argmax(preds, axis=-1) == trues)
-
-    return total_matches/len(preds)
 
 
 # Define the model
@@ -75,7 +58,7 @@ for e in tqdm(range(N_EPOCHS)):
     for images, labels in tqdm(train_loader, leave=False):
         models = optimiser.step(models, images.to(DEVICE), labels.to(DEVICE))
 
-        latest_scores.append(np.mean([get_accuracy(test_loader, m)
+        latest_scores.append(np.mean([get_accuracy(test_loader, m, DEVICE)
                                       for m in models]))
 
 end = datetime.now()
