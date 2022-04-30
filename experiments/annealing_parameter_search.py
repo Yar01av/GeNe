@@ -1,3 +1,5 @@
+import random
+
 import matplotlib.pyplot as plt
 import numpy as np
 from torch.utils.data import DataLoader
@@ -11,8 +13,13 @@ import torch
 from gene.targets import get_negative_accuracy_target
 from gene.util import get_accuracy, grid_search
 
+
+random.seed(0)
+torch.manual_seed(0)
+np.random.seed(0)
+
 DEVICE = ["cpu", "cuda"][1]
-N_EPOCHS = 1
+N_EPOCHS = 5
 
 
 def train(decay=0.999, init_std=5):
@@ -31,7 +38,7 @@ def train(decay=0.999, init_std=5):
     optimiser = AnnealingOptimiser(target_func=get_negative_accuracy_target,
                                    init_std=init_std,
                                    std_updater=lambda std: std*decay if std >= 0.0001 else std,
-                                   selection_limit=2,
+                                   selection_limit=10,
                                    device=DEVICE)
 
     # Define the data
@@ -57,7 +64,8 @@ def train(decay=0.999, init_std=5):
     return np.mean([get_accuracy(test_loader, m, DEVICE) for m in models])
 
 
-parameters = {"decay": [0.999, 0.1], "init_std": [3.0, 2.0]}
+parameters = {"decay": np.logspace(1, np.log10(0.9), 10),
+              "init_std": np.logspace(-2, 1.3, 10   )}
 n_param_0, n_param_1 = len(list(parameters.values())[0]), len(list(parameters.values())[1])
 results = grid_search(trainer=train, parameters=parameters)
 print(results)
@@ -69,11 +77,14 @@ ax.imshow(scores)
 
 for i in range(n_param_0):
     for j in range(n_param_1):
-        text = ax.text(j, i, scores[i, j],
+        text = ax.text(j, i, str(scores[i, j])[:4],
                        ha="center", va="center", color="w")
 ax.set_xticks(range(n_param_1))
-ax.set_xticklabels(list(parameters.values())[1])
+ax.set_xticklabels([str(val)[:6] for val in list(parameters.values())[1]])
 ax.set_yticks(range(n_param_0))
-ax.set_yticklabels(list(parameters.values())[0])
+ax.set_yticklabels([str(val)[:6] for val in list(parameters.values())[0]])
+ax.set_xlabel(list(parameters.keys())[1])
+ax.set_ylabel(list(parameters.keys())[0])
+ax.xticks(rotation=45)
 
 plt.show()

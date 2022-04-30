@@ -2,6 +2,7 @@ from collections import namedtuple
 import itertools
 
 import numpy as np
+from tqdm import tqdm
 
 
 def split_into_batchs(items, batch_size):
@@ -41,7 +42,7 @@ def grid_search(trainer, parameters: dict):
     combinations = [{param_name: param_value for param_name, param_value in zip(parameters.keys(), combination)}
                     for combination in combinations]
 
-    for combination in combinations:
+    for combination in tqdm(combinations):
         print(combination)
         score = trainer(**combination)
         result = Result(**combination, score=score)
