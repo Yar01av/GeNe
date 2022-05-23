@@ -11,6 +11,58 @@ from torch import nn, no_grad
 from gene.util import split_into_batchs, flatten_2d_list
 
 
+class DivisionOptimiser(Optimiser):
+    def __init__(self,
+                 target_func,
+                 random_function,
+                 selection_limit=10,
+                 n_offsprings=2,
+                 keep_parents=True,
+                 device="cpu"):
+        """
+        :param target_func: A function that takes an outputs of the model and true values and returns a target value.
+                            The smaller is assumed to be better.
+        :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
+                                values.
+        :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
+        :param n_offsprings: How many offsprings does a model have.
+        :param keep_parents: Should the parents be considered after the children are created.
+        This can improve the training stability.
+        """
+
+        self._target_func = target_func
+        self._selection_limit = selection_limit
+        self._n_offsprings = n_offsprings
+        self._random_function = random_function
+        self._keep_parents = keep_parents
+        self._device = device
+
+    @no_grad()
+    def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:
+        # Mutate the models
+        models_to_mutate = models * self._n_offsprings
+        mutated_models = [self._mutate(self._random_function, model, self._device) for model in models_to_mutate]
+        new_models = mutated_models + models if self._keep_parents else mutated_models
+
+        # Keep only the best models
+        # remote_loss = ray.remote(self._target)
+        models_with_targets = [(model, self._target_func(model(X), y_true)) for model in new_models]
+        models_with_targets = sorted(models_with_targets, key=lambda x: x[1])
+        models_with_targets = models_with_targets[:self._selection_limit]
+
+        return [model for model, targets in models_with_targets]
+
+    @staticmethod
+    def _mutate(random_function, model: nn.Module, device) -> nn.Module:
+        original_model = deepcopy(model)
+        params = original_model.parameters()
+
+        for param in params:
+            param.data = param.data + random_function(param.data.shape).to(device)
+
+        return original_model
+
+
 class ParallelDivisionOptimiser(Optimiser):
     def __init__(self,
                  target_func,
@@ -83,54 +135,6 @@ class ParallelDivisionOptimiser(Optimiser):
     # TODO: rewrite as a dynamic method
     @staticmethod
     def _mutate(random_function, model: nn.Module, device: str) -> nn.Module:
-        original_model = deepcopy(model)
-        params = original_model.parameters()
-
-        for param in params:
-            param.data = param.data + random_function(param.data.shape).to(device)
-
-        return original_model
-
-
-class DivisionOptimiser(Optimiser):
-    def __init__(self,
-                 target_func,
-                 random_function,
-                 selection_limit=10,
-                 division_factor=2,
-                 device="cpu"):
-        """
-        :param target_func: A function that takes an outputs of the model and true values and returns a target value.
-                            The smaller is assumed to be better.
-        :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
-                                values.
-        :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
-        :param division_factor: How many offsprings does a model have.
-        """
-
-        self._target_func = target_func
-        self._selection_limit = selection_limit
-        self._division_factor = division_factor
-        self._random_function = random_function
-        self._device = device
-
-    @no_grad()
-    def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:
-        # Mutate the models
-        models_to_mutate = models * self._division_factor
-        mutated_models = [self._mutate(self._random_function, model, self._device) for model in models_to_mutate]
-        new_models = mutated_models + models
-
-        # Keep only the best models
-        # remote_loss = ray.remote(self._target)
-        models_with_targets = [(model, self._target_func(model(X), y_true)) for model in new_models]
-        models_with_targets = sorted(models_with_targets, key=lambda x: x[1])
-        models_with_targets = models_with_targets[:self._selection_limit]
-
-        return [model for model, targets in models_with_targets]
-
-    @staticmethod
-    def _mutate(random_function, model: nn.Module, device) -> nn.Module:
         original_model = deepcopy(model)
         params = original_model.parameters()
 

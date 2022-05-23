@@ -13,7 +13,7 @@ class AnnealingOptimiser(Optimiser):
                  init_std,
                  std_updater,
                  selection_limit=10,
-                 division_factor=2,
+                 n_offsprings=2,
                  device="cpu"):
         """
         Optimiser that relies on simulated annealing to improve the weights of the networks.
@@ -23,7 +23,7 @@ class AnnealingOptimiser(Optimiser):
         after a new generation of models is produced.
         :param target_func: A function that takes an outputs of the model and true values.
         :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
-        :param division_factor: How many offsprings does a model have.
+        :param n_offsprings: How many offsprings does a model have.
         """
 
         self._std = init_std
@@ -31,7 +31,7 @@ class AnnealingOptimiser(Optimiser):
         self._div_optimiser = DivisionOptimiser(target_func=target_func,
                                                 random_function=lambda shape: torch.normal(0, self._std, shape),
                                                 selection_limit=selection_limit,
-                                                division_factor=division_factor,
+                                                n_offsprings=n_offsprings,
                                                 device=device)
 
     def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:

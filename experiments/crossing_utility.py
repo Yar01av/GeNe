@@ -7,6 +7,7 @@ from torchvision import datasets
 from torchvision.transforms import transforms
 from tqdm import tqdm
 
+from gene.optimisers.crossing import CrossingOptimiser
 from gene.optimisers.division import ParallelDivisionOptimiser, DivisionOptimiser
 import torch
 import torch.nn.functional as F
@@ -16,7 +17,7 @@ from gene.targets import get_negative_accuracy_target
 from gene.util import get_accuracy
 
 DEVICE = ["cpu", "cuda"][1]
-N_EPOCHS = 10
+N_EPOCHS = 30
 
 
 # Define the model
@@ -31,10 +32,11 @@ model = torch.nn.Sequential(
 models = [model.to(DEVICE)]
 
 # Define the optimiser
-optimiser = ParallelDivisionOptimiser(target_func=get_negative_accuracy_target,
-                              random_function=lambda shape: torch.normal(0, 0.1, shape),
+optimiser = CrossingOptimiser(target_func=get_negative_accuracy_target,
+                              random_function=lambda shape: torch.normal(0, 15.0, shape),
                               selection_limit=10,
-                              multi_proc_batch_size=18,
+                              max_couples=10,
+                              n_children_per_couple=2,
                               device=DEVICE)
 
 # Define the data
@@ -59,11 +61,10 @@ for e in tqdm(range(N_EPOCHS)):
     for images, labels in tqdm(train_loader, leave=False):
         models = optimiser.step(models, images.to(DEVICE), labels.to(DEVICE))
 
-        latest_score = np.mean([get_accuracy(test_loader, m, DEVICE) for m in models])
-        latest_scores.append(latest_score)
-        print(latest_score)
+    latest_score = np.mean([get_accuracy(test_loader, m, DEVICE) for m in models])
+    latest_scores.append(latest_score)
+    print(latest_score)
 
-end = datetime.now()
 
 plt.plot(latest_scores)
 plt.show()
