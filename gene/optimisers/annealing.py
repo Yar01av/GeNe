@@ -14,6 +14,7 @@ class AnnealingOptimiser(Optimiser):
                  std_updater,
                  selection_limit=10,
                  n_offsprings=2,
+                 keep_parents=True,
                  device="cpu"):
         """
         Optimiser that relies on simulated annealing to improve the weights of the networks.
@@ -32,6 +33,7 @@ class AnnealingOptimiser(Optimiser):
                                                 random_function=lambda shape: torch.normal(0, self._std, shape),
                                                 selection_limit=selection_limit,
                                                 n_offsprings=n_offsprings,
+                                                keep_parents=keep_parents,
                                                 device=device)
 
     def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:

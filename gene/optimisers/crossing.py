@@ -24,10 +24,14 @@ class CrossingOptimiser(Optimiser):
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
                                 values.
         :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
-        :param n_offsprings: How many offsprings does a model have.
+        :param n_children_per_couple: How many offsprings does a model have.
+        :param max_couples: At most how many couples should be formed. The values is between 1 and
+        len(random_functions) choose 2.
+        :param keep_parents: Should the parents compete with the children for survival.
+        :param device: Which torch device should be used to generate the new models. This effects what models can be
+        passed to .step().
         """
 
-        # TODO: fix the documentation
         self._keep_parents = keep_parents
         self._n_children_per_couple = n_children_per_couple
         self._max_couples = max_couples
