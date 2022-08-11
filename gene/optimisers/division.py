@@ -8,6 +8,7 @@ import ray
 from gene.optimisers.base import Optimiser
 from torch import nn, no_grad
 
+from gene.selections.top_n import TopNSelection
 from gene.util import split_into_batchs, flatten_2d_list
 
 
@@ -15,23 +16,23 @@ class DivisionOptimiser(Optimiser):
     def __init__(self,
                  target_func,
                  random_function,
-                 selection_limit=10,
                  n_offsprings=2,
                  keep_parents=True,
+                 selection=TopNSelection(10),
                  device="cpu"):
         """
         :param target_func: A function that takes an outputs of the model and true values and returns a target value.
                             The smaller is assumed to be better.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
                                 values.
-        :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
+        :param selection: A selection instance that takes a list of models with targets and returns a list of models.
         :param n_offsprings: How many offsprings does a model have.
         :param keep_parents: Should the parents be considered after the children are created.
         This can improve the training stability.
         """
 
         self._target_func = target_func
-        self._selection_limit = selection_limit
+        self._selection = selection
         self._n_offsprings = n_offsprings
         self._random_function = random_function
         self._keep_parents = keep_parents
@@ -47,10 +48,8 @@ class DivisionOptimiser(Optimiser):
         # Keep only the best models
         # remote_loss = ray.remote(self._target)
         models_with_targets = [(model, self._target_func(model(X), y_true)) for model in new_models]
-        models_with_targets = sorted(models_with_targets, key=lambda x: x[1])
-        models_with_targets = models_with_targets[:self._selection_limit]
 
-        return [model for model, targets in models_with_targets]
+        return self._selection(models_with_targets)
 
     @staticmethod
     def _mutate(random_function, model: nn.Module, device) -> nn.Module:
@@ -87,7 +86,6 @@ class ParallelDivisionOptimiser(Optimiser):
         self._targets = None
         self._device = device
         self._multi_proc_batch_size = multi_proc_batch_size
-
 
         ray.init(ignore_reinit_error=True, num_gpus=1)
         self._remote_mutate_batch = ray.remote(num_gpus=1 if device == "cuda" else 0)\

@@ -7,13 +7,14 @@ from torch import nn
 from itertools import combinations
 from gene.optimisers.base import Optimiser
 from gene.optimisers.division import DivisionOptimiser
+from gene.selections.top_n import TopNSelection
 
 
 class CrossingOptimiser(Optimiser):
     def __init__(self,
                  target_func,
                  random_function,
-                 selection_limit=10,
+                 selection=TopNSelection(10),
                  max_couples=1,
                  n_children_per_couple=1,
                  keep_parents=True,
@@ -23,7 +24,7 @@ class CrossingOptimiser(Optimiser):
                             The smaller is assumed to be better.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
                                 values.
-        :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
+        :param selection: A selection instance that takes a list of models with targets and returns a list of models.
         :param n_children_per_couple: How many offsprings does a model have.
         :param max_couples: At most how many couples should be formed. The values is between 1 and
         len(random_functions) choose 2.
@@ -36,7 +37,7 @@ class CrossingOptimiser(Optimiser):
         self._n_children_per_couple = n_children_per_couple
         self._max_couples = max_couples
         self._target_func = target_func
-        self._selection_limit = selection_limit
+        self._selection = selection
         self._random_function = random_function
         self._device = device
 
@@ -53,14 +54,9 @@ class CrossingOptimiser(Optimiser):
         new_models = children + models if self._keep_parents else children
 
         # Keep only the best models
-        models_with_targets = self._select_best_models(new_models, X, y_true)
+        models_with_targets = [(model, self._target_func(model(X), y_true)) for model in new_models]
 
-        return [model for model, targets in models_with_targets]
-
-    def _select_best_models(self, models, X, y_true):
-        models_with_targets = [(model, self._target_func(model(X), y_true)) for model in models]
-        models_with_targets = sorted(models_with_targets, key=lambda x: x[1])
-        return models_with_targets[:self._selection_limit]
+        return self._selection(models_with_targets)
 
     @staticmethod
     def _mutate(random_function, model: nn.Module, device) -> nn.Module:
