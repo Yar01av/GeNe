@@ -15,6 +15,7 @@ from torch import nn
 
 from gene.selections.loss_proportional import LossProportionalSelection
 from gene.selections.top_n import TopNSelection
+from gene.selections.tournament import TournamentSelection
 from gene.targets import get_negative_accuracy_target
 from gene.util import get_accuracy
 
@@ -36,7 +37,7 @@ models = [model.to(DEVICE)]
 optimiser = AnnealedCrossingOptimiser(target_func=get_negative_accuracy_target,
                                       init_std=4.4402,
                                       std_updater=lambda std: std * 0.999 if std >= 0.0001 else std,
-                                      selection=TopNSelection(10),
+                                      selection=TournamentSelection(n_samples=10, samples_size=5),
                                       max_couples=10,
                                       n_children_per_couple=2,
                                       device=DEVICE)
