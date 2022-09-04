@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import List
+from typing import List, Callable
 
 import numpy as np
 import random
@@ -12,7 +12,6 @@ from gene.selections.top_n import TopNSelection
 
 class CrossingOptimiser(Optimiser):
     def __init__(self,
-                 target_func,
                  random_function,
                  selection=TopNSelection(10),
                  max_couples=1,
@@ -20,8 +19,6 @@ class CrossingOptimiser(Optimiser):
                  keep_parents=True,
                  device="cpu"):
         """
-        :param target_func: A function that takes an outputs of the model and true values and returns a target value.
-                            The smaller is assumed to be better.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
                                 values.
         :param selection: A selection instance that takes a list of models with targets and returns a list of models.
@@ -36,12 +33,11 @@ class CrossingOptimiser(Optimiser):
         self._keep_parents = keep_parents
         self._n_children_per_couple = n_children_per_couple
         self._max_couples = max_couples
-        self._target_func = target_func
         self._selection = selection
         self._random_function = random_function
         self._device = device
 
-    def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:
+    def step(self, models: List[nn.Module], loss_function: Callable[[nn.Module], float]) -> List[nn.Module]:
         assert len(models) != 0
         if len(models) == 1:
             models = 2*models
@@ -54,7 +50,7 @@ class CrossingOptimiser(Optimiser):
         new_models = children + models if self._keep_parents else children
 
         # Keep only the best models
-        models_with_targets = [(model, self._target_func(model(X), y_true)) for model in new_models]
+        models_with_targets = [(model, loss_function(model)) for model in new_models]
 
         return self._selection(models_with_targets)
 

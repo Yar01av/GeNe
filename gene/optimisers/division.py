@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import List, Union
+from typing import List, Union, Callable
 
 import numpy as np
 import torch
@@ -14,15 +14,12 @@ from gene.util import split_into_batchs, flatten_2d_list
 
 class DivisionOptimiser(Optimiser):
     def __init__(self,
-                 target_func,
                  random_function,
                  n_offsprings=2,
                  keep_parents=True,
                  selection=TopNSelection(10),
                  device="cpu"):
         """
-        :param target_func: A function that takes an outputs of the model and true values and returns a target value.
-                            The smaller is assumed to be better.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
                                 values.
         :param selection: A selection instance that takes a list of models with targets and returns a list of models.
@@ -31,15 +28,15 @@ class DivisionOptimiser(Optimiser):
         This can improve the training stability.
         """
 
-        self._target_func = target_func
         self._selection = selection
         self._n_offsprings = n_offsprings
         self._random_function = random_function
         self._keep_parents = keep_parents
         self._device = device
 
+    # TODO: decouple the loss computation from the mutation.
     @no_grad()
-    def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:
+    def step(self, models: List[nn.Module], loss_function: Callable[[nn.Module], float]) -> List[nn.Module]:
         # Mutate the models
         models_to_mutate = models * self._n_offsprings
         mutated_models = [self._mutate(self._random_function, model, self._device) for model in models_to_mutate]
@@ -47,7 +44,7 @@ class DivisionOptimiser(Optimiser):
 
         # Keep only the best models
         # remote_loss = ray.remote(self._target)
-        models_with_targets = [(model, self._target_func(model(X), y_true)) for model in new_models]
+        models_with_targets = [(model, loss_function(model)) for model in new_models]
 
         return self._selection(models_with_targets)
 
@@ -62,16 +59,17 @@ class DivisionOptimiser(Optimiser):
         return original_model
 
 
+# TODO: big refactoring is needed here. The code is broken by the changes in the optimiser interface.
+# Namely, the optimiser used to rely .step() to take X and y_true, but now it takes a loss function (model -> loss).
+# TODO: selection should be updated as well.
 class ParallelDivisionOptimiser(Optimiser):
     def __init__(self,
-                 target_func,
                  random_function,
                  selection_limit=10,
                  division_factor=2,
                  device="cpu",
                  multi_proc_batch_size=16):
         """
-        :param target_func: A function that takes an outputs of the model and true values.
         :param random_function: A function that takes produces a tensor of the given shape (as tuple) filled with random
                                 values.
         :param selection_limit: Maximum number of models that remains after removing the worst-performing ones.
@@ -79,7 +77,6 @@ class ParallelDivisionOptimiser(Optimiser):
         :param multi_proc_batch_size: how many units of work should be put into a single batch.
         """
 
-        self._target_func = target_func
         self._selection_limit = selection_limit
         self._division_factor = division_factor
         self._random_function = ray.put(random_function)
@@ -99,7 +96,7 @@ class ParallelDivisionOptimiser(Optimiser):
         return deepcopy(self._targets)
 
     @no_grad()
-    def step(self, models: List[nn.Module], X, y_true) -> List[nn.Module]:
+    def step(self, models: List[nn.Module], loss_function: Callable[[nn.Module], float]) -> List[nn.Module]:
         # Mutate the models
         models_to_mutate = models * self._division_factor
         remote_models = [self._remote_mutate_batch.remote(models)

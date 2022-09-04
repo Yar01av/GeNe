@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from gene.selections.top_n import TopNSelection
+from gene.targets import make_supervised_loss
 from gene.util import get_accuracy
 
 DEVICE = ["cpu", "cuda"][1]
@@ -30,8 +32,8 @@ model = torch.nn.Sequential(
 models = [model.to(DEVICE)]
 
 # Define the optimiser
-optimiser = DivisionOptimiser(target_func=nn.CrossEntropyLoss(reduction="mean"),
-                              random_function=lambda shape: torch.normal(0, 0.1, shape), selection_limit=10,
+optimiser = DivisionOptimiser(random_function=lambda shape: torch.normal(0, 0.1, shape),
+                              selection=TopNSelection(10),
                               device=DEVICE)
 
 # Define the data
@@ -56,10 +58,16 @@ start = datetime.now()
 
 for e in tqdm(range(N_EPOCHS)):
     for images, labels in tqdm(train_loader, leave=False):
-        models = optimiser.step(models, images.to(DEVICE), labels.to(DEVICE))
+        loss_for_model = make_supervised_loss(
+            loss=nn.CrossEntropyLoss(reduction="mean"),
+            X=images.to(DEVICE),
+            y=labels.to(DEVICE)
+        )
+        models = optimiser.step(models, loss_function=loss_for_model)
 
-        latest_scores.append(np.mean([get_accuracy(test_loader, m, DEVICE)
-                                      for m in models]))
+    latest_scores.append(np.mean([get_accuracy(test_loader, m, DEVICE)
+                                  for m in models]))
+    print(f"Epoch {e} finished. Accuracy: {latest_scores[-1]}")
 
 end = datetime.now()
 print(end-start)
